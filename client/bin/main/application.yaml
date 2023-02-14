@@ -1,0 +1,6 @@
+spring:
+  data:
+    mongodb:
+      user: ${MONGO_USER:mongoUser}
+      password: ${MONGO_PASSWORD:mongoUser123}
+      uri: ${MONGO_URL:mongodb://mongoUser:mongoUser123@localhost:27017/clientdb}

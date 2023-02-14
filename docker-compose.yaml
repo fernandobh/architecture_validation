@@ -1,0 +1,115 @@
+version: '2.2'
+services:
+  mongo:
+    image: mongo
+    restart: always
+    ports:
+    - 27017:27017
+    networks:
+    - elastic
+    volumes:
+    - ./mongo/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:rw
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongoUser
+      MONGO_INITDB_ROOT_PASSWORD: mongoUser123
+      MONGO_INITDB_DATABASE: clientdb
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.6
+    environment:
+    - bootstrap.memory_lock=true
+    - cluster.name=docker-cluster
+    - cluster.routing.allocation.disk.threshold_enabled=false
+    - discovery.type=single-node
+    - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ulimits:
+      memlock:
+        hard: -1
+        soft: -1
+    volumes:
+    - esdata:/usr/share/elasticsearch/data
+    ports:
+    - 9200:9200
+    networks:
+    - elastic
+    healthcheck:
+      interval: 20s
+      retries: 10
+      test: curl -s http://localhost:9200/_cluster/health | grep -vq '"status":"red"'
+
+  apm-server:
+    image: docker.elastic.co/apm/apm-server:7.17.6
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      kibana:
+        condition: service_healthy
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "SETGID", "SETUID"]
+    cap_drop: ["ALL"]
+    ports:
+    - 8200:8200
+    networks:
+    - elastic
+    command: >
+       apm-server -e
+         -E apm-server.rum.enabled=true
+         -E setup.kibana.host=kibana:5601
+         -E setup.template.settings.index.number_of_replicas=0
+         -E apm-server.kibana.enabled=true
+         -E apm-server.kibana.host=kibana:5601
+         -E output.elasticsearch.hosts=["elasticsearch:9200"]
+    healthcheck:
+      interval: 10s
+      retries: 12
+      test: curl --write-out 'HTTP %{http_code}' --fail --silent --output /dev/null http://localhost:8200/
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.6
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+    - 5601:5601
+    networks:
+    - elastic
+    healthcheck:
+      interval: 10s
+      retries: 20
+      test: curl --write-out 'HTTP %{http_code}' --fail --silent --output /dev/null http://localhost:5601/api/status
+  
+  app:
+    image: app-mongo-error:1.0.0
+    restart: always
+    networks:
+    - elastic
+    deploy:
+      replicas: 1
+    environment:
+      MONGO_USER: mongoUser
+      MONGO_PASSWORD: mongoUser123
+      # MONGO_URL: mongodb://mongoUser:mongoUser123@mongo:27017/clientdb
+      MONGO_URL: "${MONGO_URL}"
+      SERVICE_NAME: app-apm-client-compose
+      APM_SERVER: apm-server
+      ERROR_PERCENT: 10
+      JAVA_MEMORY: "${JAVA_MEMORY}"
+
+  web:
+    image: nginx-proxy:1.0.0
+    ports:
+    - "9000:80"
+    environment:
+    - NGINX_PORT=80
+    networks:
+      - elastic
+    
+volumes:
+  esdata:
+    driver: local
+
+networks:
+  elastic:
+    driver: bridge

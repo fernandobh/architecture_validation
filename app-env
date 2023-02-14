@@ -1,0 +1,5 @@
+MONGO_USER=mongoUser
+MONGO_PASSWORD=mongoUser123
+MONGO_URL=mongodb://mongoUser:mongoUser123@172.17.0.1:27017/clientdb
+SERVICE_NAME=app-apm-client
+APM_SERVER=172.17.0.1
